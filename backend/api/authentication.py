@@ -1,29 +1,59 @@
-import jwt
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
+import jwt
+import requests
 from django.conf import settings
 
-class ClerkJWTAuthentication(BaseAuthentication):
-  def authenticate(self, request):
-        auth_header = request.headers.get('Authorization', '')
-        print("Auth Header:", auth_header)  # Debug: Vérifier le header reçu
+from django.contrib.auth.models import AnonymousUser
 
-        if not auth_header.startswith('Bearer '):
-            print("No Bearer token found")
+class ClerkUser:
+    """A simple user-like object for Django authentication"""
+    def __init__(self, decoded_token):
+        self.id = decoded_token.get("sub")  # Clerk User ID
+        self.email = decoded_token.get("email", "")
+        self.decoded_token = decoded_token
+        self.is_authenticated = True  # ✅ Required for DRF authentication
+
+    def __str__(self):
+        return f"ClerkUser(id={self.id}, email={self.email})"
+
+class ClerkJWTAuthentication(BaseAuthentication):
+    def authenticate(self, request):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
             return None
 
         token = auth_header.split(' ')[1]
-        print("Token:", token)  # Debug: Voir le JWT
-
         try:
-            decoded = jwt.decode(token, settings.CLERK_SECRET_KEY, algorithms=['HS256'])
-            print("Decoded JWT:", decoded)  # Debug: Vérifier le contenu décodé
-            user_id = decoded['sub']
-            print("User ID:", user_id)  # Debug: Vérifier l'ID utilisateur
-            return (user_id, None)  # Retourne user_id comme request.user
+            # Fetch JWKS
+            jwks_url = f'https://{settings.CLERK_DOMAIN}/.well-known/jwks.json'
+            response = requests.get(jwks_url)
+            response.raise_for_status()
+            jwks = response.json()
+
+            # Get public key
+            header = jwt.get_unverified_header(token)
+            kid = header.get('kid')
+            public_key = next((key for key in jwks['keys'] if key['kid'] == kid), None)
+            if not public_key:
+                raise AuthenticationFailed('Invalid token: kid not found')
+
+            pem_key = jwt.algorithms.RSAAlgorithm.from_jwk(public_key)
+
+            # Decode token
+            decoded = jwt.decode(
+                token,
+                pem_key,
+                algorithms=['RS256'],
+                issuer=f'https://{settings.CLERK_DOMAIN}',
+                options={'verify_exp': True}
+            )
+
+            # ✅ Return a user-like object instead of a dictionary
+            return (ClerkUser(decoded), None)
+
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Invalid token: Token has expired')
         except jwt.InvalidTokenError as e:
-            print("JWT Error:", str(e))  # Debug: Voir l'erreur spécifique
-            raise AuthenticationFailed('Token invalide ou expiré')
-        except Exception as e:
-            print("Unexpected Error:", str(e))
-            raise AuthenticationFailed('Erreur d\'authentification')
+            raise AuthenticationFailed(f'Invalid token: {str(e)}')
+    

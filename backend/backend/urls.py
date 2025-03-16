@@ -21,5 +21,5 @@ from api.views import TestAuthView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('test-auth/', TestAuthView.as_view(), name='test_auth')
+    path('api/save_user/', TestAuthView.as_view(), name='test_auth')
 ]
