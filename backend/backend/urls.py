@@ -16,10 +16,12 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-
-from api.views import TestAuthView
+from api.views import TestAuthView, CreateTrajetView
+from api.views import DeleteTrajetView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/save_user/', TestAuthView.as_view(), name='test_auth')
+    path('api/save_user/', TestAuthView.as_view(), name='test_auth'),
+    path('api/trips/', CreateTrajetView.as_view(), name='create_trajet'),
+ path('api/trips/<int:pk>/', DeleteTrajetView.as_view(), name='delete_trajet'),
 ]
